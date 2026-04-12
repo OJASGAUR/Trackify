@@ -1,10 +1,18 @@
-import { format, addDays, getDay, isAfter, isBefore, parseISO } from "date-fns";
+import {
+  format,
+  addDays,
+  getDay,
+  isBefore,
+  parseISO,
+  endOfMonth,
+  eachDayOfInterval,
+} from "date-fns";
 import { AppSettings, Task, ClassName, CopyType } from "./types";
 
 export function isSecondSaturday(date: Date): boolean {
   if (getDay(date) !== 6) return false;
-  const day = date.getDate();
-  return day >= 8 && day <= 14;
+  const d = date.getDate();
+  return d >= 8 && d <= 14;
 }
 
 export function isWorkingDay(date: Date, settings: AppSettings): boolean {
@@ -19,78 +27,79 @@ interface ComboSlot {
   copyType: CopyType;
   partIndex: number;
   totalParts: number;
-  partTotal: number; // copies in this part
-  partStart: number; // 1-based start student index
+  partTotal: number;
+  partStart: number;
 }
 
-/** Build a flat list of all task slots, splitting each class×type into N parts */
+/**
+ * Build slots in a MIXED, interleaved order so the two parts of the same class
+ * are spread apart with other classes in between.
+ *
+ * Order: for each part round → for each copyType → for each class
+ * Result: [6A-HW-1, 6B-HW-1, ..., 6A-CW-1, 6B-CW-1, ..., 6A-HW-2, 6B-HW-2, ...]
+ */
 function buildAllSlots(settings: AppSettings): ComboSlot[] {
-  const slots: ComboSlot[] = [];
   const perDay = Math.max(1, settings.defaultCopiesPerDay);
+  const classes = settings.classesConfig;
+  const maxParts = Math.max(
+    ...classes.map((c) => Math.max(1, Math.ceil(c.studentsCount / perDay)))
+  );
 
-  settings.classesConfig.forEach((c) => {
-    const totalStudents = c.studentsCount;
-    const parts = Math.max(1, Math.ceil(totalStudents / perDay));
+  const slots: ComboSlot[] = [];
 
-    (["Homework", "Classwork"] as CopyType[]).forEach((copyType) => {
-      for (let p = 1; p <= parts; p++) {
+  for (let p = 1; p <= maxParts; p++) {
+    for (const copyType of ["Homework", "Classwork"] as CopyType[]) {
+      for (const c of classes) {
+        const totalParts = Math.max(1, Math.ceil(c.studentsCount / perDay));
+        if (p > totalParts) continue;
         const partStart = (p - 1) * perDay + 1;
-        const partEnd = Math.min(p * perDay, totalStudents);
-        const partTotal = partEnd - partStart + 1;
+        const partEnd = Math.min(p * perDay, c.studentsCount);
         slots.push({
           classId: c.id as ClassName,
           copyType,
           partIndex: p,
-          totalParts: parts,
-          partTotal,
+          totalParts,
+          partTotal: partEnd - partStart + 1,
           partStart,
         });
       }
-    });
-  });
+    }
+  }
+
   return slots;
 }
 
-/** Collect working day date strings from startDate onward (today inclusive) */
-function collectWorkingDates(settings: AppSettings, need: number): string[] {
+/** Working day strings from today (or startDate if later) through end of current month */
+function collectWorkingDatesInMonth(settings: AppSettings): string[] {
+  const today = parseISO(format(new Date(), "yyyy-MM-dd"));
   const startDate = parseISO(settings.startDate);
-  const today = parseISO(format(new Date(), "yyyy-MM-dd"));
-  // Start from whichever is later: startDate or today
   const from = isBefore(startDate, today) ? today : startDate;
-
-  const dates: string[] = [];
-  let current = from;
-  while (dates.length < need + 10) {
-    if (isWorkingDay(current, settings)) {
-      dates.push(format(current, "yyyy-MM-dd"));
-    }
-    current = addDays(current, 1);
-    // safety: stop after scanning 180 days
-    if (dates.length === 0 && current > addDays(from, 180)) break;
-    if (current > addDays(from, 365)) break;
-  }
-  return dates;
+  const monthEnd = endOfMonth(from);
+  return eachDayOfInterval({ start: from, end: monthEnd })
+    .filter((d) => isWorkingDay(d, settings))
+    .map((d) => format(d, "yyyy-MM-dd"));
 }
 
-/** Collect future Sundays (after today) as overflow fallback */
-function collectSundayFallbacks(count: number): string[] {
+/** Future Sundays after today (up to 90 days ahead) as genuine last-resort overflow */
+function collectSundayFallbacks(): string[] {
   const today = parseISO(format(new Date(), "yyyy-MM-dd"));
   const dates: string[] = [];
-  let current = addDays(today, 1);
-  while (dates.length < count) {
-    if (getDay(current) === 0 && isAfter(current, today)) {
-      dates.push(format(current, "yyyy-MM-dd"));
-    }
-    current = addDays(current, 1);
-    if (current > addDays(today, 365)) break;
+  let cur = addDays(today, 1);
+  const limit = addDays(today, 90);
+  while (cur <= limit) {
+    if (getDay(cur) === 0) dates.push(format(cur, "yyyy-MM-dd"));
+    cur = addDays(cur, 1);
   }
   return dates;
 }
+
+/** Maximum auto-tasks allowed on a single day */
+const MAX_PER_DAY = 3;
 
 export function generateSchedule(settings: AppSettings, existingTasks: Task[] = []): Task[] {
   const allSlots = buildAllSlots(settings);
 
-  // Determine which slots are already scheduled (non-manual tasks with partIndex = v2 format)
+  // Which auto slots are already scheduled (v2 format = has partIndex)
   const scheduledKeys = new Set(
     existingTasks
       .filter((t) => !t.isManual && t.partIndex !== undefined)
@@ -103,26 +112,42 @@ export function generateSchedule(settings: AppSettings, existingTasks: Task[] = 
 
   if (unscheduled.length === 0) return [...existingTasks];
 
-  // Get working days
-  const workingDates = collectWorkingDates(settings, unscheduled.length);
+  // Build date pool: try working days only first.
+  // Only pull in Sunday fallbacks if even MAX_PER_DAY tasks/day isn't enough.
+  const workingDates = collectWorkingDatesInMonth(settings);
+  const datePool = [...workingDates];
 
-  // If still not enough, pad with Sunday fallbacks
-  const sundayFallbacks = collectSundayFallbacks(Math.max(10, unscheduled.length));
-  const scheduleDates = [...workingDates];
-  let si = 0;
-  while (scheduleDates.length < unscheduled.length && si < sundayFallbacks.length) {
-    const d = sundayFallbacks[si++];
-    if (!scheduleDates.includes(d)) scheduleDates.push(d);
+  if (workingDates.length * MAX_PER_DAY < unscheduled.length) {
+    // Genuinely need extra days — use future Sundays as overflow
+    for (const d of collectSundayFallbacks()) {
+      if (!datePool.includes(d)) datePool.push(d);
+      if (datePool.length * MAX_PER_DAY >= unscheduled.length) break;
+    }
   }
 
-  // Assign one slot per day, one after another
-  const newTasks: Task[] = unscheduled.map((slot, idx) => {
-    const dateStr = scheduleDates[idx % scheduleDates.length];
-    return {
+  if (datePool.length === 0) return [...existingTasks];
+
+  // How many tasks per day (spread evenly, at most MAX_PER_DAY)
+  const tasksPerDay = Math.min(
+    MAX_PER_DAY,
+    Math.ceil(unscheduled.length / datePool.length)
+  );
+
+  // Assign slots across dates
+  const newTasks: Task[] = [];
+  let di = 0;
+  let countOnDate = 0;
+
+  for (const slot of unscheduled) {
+    if (countOnDate >= tasksPerDay && di < datePool.length - 1) {
+      di++;
+      countOnDate = 0;
+    }
+    newTasks.push({
       id: `${slot.classId}-${slot.copyType}-pt${slot.partIndex}`,
       classId: slot.classId,
       copyType: slot.copyType,
-      assignedDate: dateStr,
+      assignedDate: datePool[di],
       status: "pending",
       checkedCount: 0,
       isManual: false,
@@ -130,8 +155,9 @@ export function generateSchedule(settings: AppSettings, existingTasks: Task[] = 
       totalParts: slot.totalParts,
       partTotal: slot.partTotal,
       partStart: slot.partStart,
-    };
-  });
+    });
+    countOnDate++;
+  }
 
   return [...existingTasks, ...newTasks];
 }

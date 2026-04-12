@@ -27,6 +27,7 @@ import {
   BookOpen,
   Plus,
   Trash2,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,6 @@ const ALL_CLASSES: ClassName[] = ["6A", "6B", "7D", "8B", "9D", "10C"];
 const COPY_TYPES: CopyType[] = ["Homework", "Classwork"];
 
 function getTaskTotal(task: Task, studentsCount: number): number {
-  // v2: use partTotal; v1/manual: use studentsCount
   return task.partTotal ?? studentsCount;
 }
 
@@ -55,46 +55,47 @@ export function TaskDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const { tasks, updateTask, addTask, removeTask, settings } = useStore();
+  const { tasks, updateTask, addTask, removeTask, rescheduleTask, settings } = useStore();
   const dayTasks = tasks.filter((t) => t.assignedDate === dateStr);
   const date = parseISO(dateStr);
 
   const [editingPartial, setEditingPartial] = useState<string | null>(null);
   const [partialValue, setPartialValue] = useState("");
+  const [movingTask, setMovingTask] = useState<string | null>(null);
+  const [moveDate, setMoveDate] = useState("");
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newClass, setNewClass] = useState<ClassName>("6A");
   const [newCopyType, setNewCopyType] = useState<CopyType>("Homework");
   const [newCount, setNewCount] = useState<string>("");
 
-  const getDefaultCount = (classId: ClassName) => {
-    return settings.classesConfig.find((c) => c.id === classId)?.studentsCount ?? 40;
-  };
+  const getStudentsCount = (classId: ClassName) =>
+    settings.classesConfig.find((c) => c.id === classId)?.studentsCount ?? 40;
 
   const handleMark = (task: Task, status: "checked" | "skipped") => {
-    const studentsCount =
-      settings.classesConfig.find((c) => c.id === task.classId)?.studentsCount ?? 40;
-    const total = getTaskTotal(task, studentsCount);
-    updateTask(task.id, {
-      status,
-      checkedCount: status === "checked" ? total : 0,
-    });
+    const total = getTaskTotal(task, getStudentsCount(task.classId));
+    updateTask(task.id, { status, checkedCount: status === "checked" ? total : 0 });
   };
 
   const handleSavePartial = (taskId: string, maxTotal: number) => {
     const val = parseInt(partialValue, 10);
     if (!isNaN(val) && val > 0) {
-      updateTask(taskId, {
-        status: "partial",
-        checkedCount: Math.min(val, maxTotal),
-      });
+      updateTask(taskId, { status: "partial", checkedCount: Math.min(val, maxTotal) });
     }
     setEditingPartial(null);
   };
 
+  const handleMove = (taskId: string) => {
+    if (!moveDate) return;
+    rescheduleTask(taskId, moveDate);
+    setMovingTask(null);
+    setMoveDate("");
+    onOpenChange(false);
+  };
+
   const handleAddTask = () => {
     const count = parseInt(newCount, 10);
-    const total = isNaN(count) || count <= 0 ? getDefaultCount(newClass) : count;
+    const total = isNaN(count) || count <= 0 ? getStudentsCount(newClass) : count;
     const id = `manual-${newClass}-${newCopyType}-${dateStr}-${Date.now()}`;
     const task: Task = {
       id,
@@ -115,78 +116,77 @@ export function TaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-xl font-display flex items-center gap-2">
+          <DialogTitle className="text-lg md:text-xl font-display flex items-center gap-2">
             <BookOpen className="h-5 w-5 text-primary" />
             {format(date, "EEEE, MMMM do")}
           </DialogTitle>
           <DialogDescription>
-            View, mark, or add copy-checking tasks for this day.
+            Mark, move, or add copy-checking tasks for this day.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 mt-2">
+        <div className="space-y-3 mt-1">
           {dayTasks.length === 0 && !showAddForm ? (
             <div className="text-center py-6 text-muted-foreground bg-muted/30 rounded-lg border border-dashed">
-              No tasks for this day yet.
+              No tasks for this day.
             </div>
           ) : (
             dayTasks.map((task) => {
-              const studentsCount =
-                settings.classesConfig.find((c) => c.id === task.classId)?.studentsCount ?? 40;
-              const total = getTaskTotal(task, studentsCount);
+              const total = getTaskTotal(task, getStudentsCount(task.classId));
               const partLabel = getPartLabel(task);
+              const typeColor = task.copyType === "Homework"
+                ? "text-emerald-700 bg-emerald-50"
+                : "text-blue-700 bg-blue-50";
 
               return (
                 <div
                   key={task.id}
                   className={cn(
-                    "p-4 rounded-xl border transition-colors",
-                    task.status === "checked"
-                      ? "bg-primary/5 border-primary/20"
-                      : task.status === "partial"
-                      ? "bg-yellow-500/5 border-yellow-500/20"
-                      : task.status === "skipped"
-                      ? "bg-muted/50 border-muted"
-                      : "bg-card border-border hover:border-primary/30"
+                    "p-3 md:p-4 rounded-xl border transition-colors",
+                    task.status === "checked" ? "bg-primary/5 border-primary/20" :
+                    task.status === "partial" ? "bg-yellow-500/5 border-yellow-500/20" :
+                    task.status === "skipped" ? "bg-muted/50 border-muted" :
+                    "bg-card border-border"
                   )}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <div>
-                      <h4 className="font-bold text-lg text-foreground flex items-center gap-2">
-                        Class {task.classId} — {task.copyType}
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h4 className="font-bold text-base text-foreground">
+                          Class {task.classId}
+                        </h4>
+                        <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded", typeColor)}>
+                          {task.copyType}
+                        </span>
                         {task.isManual && (
                           <span className="text-[10px] font-normal bg-accent px-1.5 py-0.5 rounded text-accent-foreground">
                             manual
                           </span>
                         )}
-                        {task.status === "checked" && (
-                          <CheckCircle2 className="h-4 w-4 text-primary" />
-                        )}
-                      </h4>
+                        {task.status === "checked" && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                      </div>
                       {partLabel && (
-                        <p className="text-xs text-muted-foreground font-medium mt-0.5">
-                          {partLabel}
-                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{partLabel}</p>
                       )}
-                      <p className="text-sm text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         {task.status === "partial"
                           ? `${task.checkedCount} / ${total} checked`
                           : `${total} copies`}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-xs font-medium uppercase tracking-wider px-2 py-1 rounded bg-secondary/20 text-secondary-foreground">
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-secondary/20 text-secondary-foreground">
                         {task.status}
-                      </div>
+                      </span>
                       {task.isManual && (
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
                           onClick={() => removeTask(task.id)}
-                          data-testid={`remove-task-${task.id}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -194,76 +194,94 @@ export function TaskDialog({
                     </div>
                   </div>
 
-                  {editingPartial === task.id ? (
-                    <div className="flex items-center gap-2 mt-4 bg-background p-2 rounded-lg border shadow-sm">
+                  {/* Move to another date */}
+                  {movingTask === task.id ? (
+                    <div className="flex items-center gap-2 mt-3 bg-background p-2 rounded-lg border shadow-sm">
+                      <Input
+                        type="date"
+                        className="flex-1 text-sm h-8"
+                        value={moveDate}
+                        min={format(new Date(), "yyyy-MM-dd")}
+                        onChange={(e) => setMoveDate(e.target.value)}
+                        autoFocus
+                      />
+                      <Button size="sm" onClick={() => handleMove(task.id)} disabled={!moveDate}>
+                        Move
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setMovingTask(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : editingPartial === task.id ? (
+                    <div className="flex items-center gap-2 mt-3 bg-background p-2 rounded-lg border shadow-sm">
                       <Input
                         type="number"
                         min="1"
                         max={total}
-                        className="w-24"
+                        className="w-20 h-8 text-sm"
                         placeholder="Count"
                         value={partialValue}
                         onChange={(e) => setPartialValue(e.target.value)}
                         autoFocus
-                        data-testid="input-partial-count"
                       />
                       <span className="text-sm text-muted-foreground">/ {total}</span>
                       <div className="flex-1" />
-                      <Button
-                        size="sm"
-                        onClick={() => handleSavePartial(task.id, total)}
-                        data-testid="button-save-partial"
-                      >
+                      <Button size="sm" onClick={() => handleSavePartial(task.id, total)}>
                         Save
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingPartial(null)}
-                      >
+                      <Button size="sm" variant="ghost" onClick={() => setEditingPartial(null)}>
                         Cancel
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap gap-2 mt-4">
+                    <div className="flex flex-wrap gap-1.5 mt-3">
                       <Button
                         size="sm"
                         variant={task.status === "checked" ? "default" : "outline"}
                         className={cn(
-                          task.status === "checked" &&
-                            "bg-primary hover:bg-primary/90 text-white"
+                          "h-8 text-xs",
+                          task.status === "checked" && "bg-primary text-white"
                         )}
                         onClick={() => handleMark(task, "checked")}
-                        data-testid={`button-check-${task.id}`}
                       >
-                        <CheckCircle2 className="h-4 w-4 mr-2" />
-                        Checked All
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                        All Done
                       </Button>
 
                       <Button
                         size="sm"
                         variant={task.status === "partial" ? "secondary" : "outline"}
+                        className="h-8 text-xs"
                         onClick={() => {
                           setEditingPartial(task.id);
-                          setPartialValue(
-                            task.checkedCount ? task.checkedCount.toString() : ""
-                          );
+                          setPartialValue(task.checkedCount ? task.checkedCount.toString() : "");
                         }}
-                        data-testid={`button-partial-${task.id}`}
                       >
-                        <Clock className="h-4 w-4 mr-2" />
+                        <Clock className="h-3.5 w-3.5 mr-1" />
                         Partial
                       </Button>
 
                       <Button
                         size="sm"
                         variant={task.status === "skipped" ? "secondary" : "ghost"}
-                        className="text-muted-foreground hover:text-foreground"
+                        className="h-8 text-xs text-muted-foreground"
                         onClick={() => handleMark(task, "skipped")}
-                        data-testid={`button-skip-${task.id}`}
                       >
-                        <CircleDashed className="h-4 w-4 mr-2" />
+                        <CircleDashed className="h-3.5 w-3.5 mr-1" />
                         Skip
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-xs text-muted-foreground ml-auto"
+                        onClick={() => {
+                          setMovingTask(task.id);
+                          setMoveDate("");
+                        }}
+                      >
+                        <CalendarDays className="h-3.5 w-3.5 mr-1" />
+                        Move
                       </Button>
                     </div>
                   )}
@@ -275,91 +293,74 @@ export function TaskDialog({
           <Separator />
 
           {showAddForm ? (
-            <div className="p-4 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 space-y-4">
-              <h4 className="font-semibold text-foreground">Add Checking Task</h4>
+            <div className="p-3 md:p-4 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 space-y-3">
+              <h4 className="font-semibold text-sm text-foreground">Add Checking Task</h4>
+              <p className="text-xs text-muted-foreground">
+                Adding a task for a class will remove its auto-scheduled tasks and put this one here instead.
+              </p>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Class</Label>
-                  <Select
-                    value={newClass}
-                    onValueChange={(v) => setNewClass(v as ClassName)}
-                  >
-                    <SelectTrigger data-testid="select-new-class">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Class</Label>
+                  <Select value={newClass} onValueChange={(v) => setNewClass(v as ClassName)}>
+                    <SelectTrigger className="h-8 text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {ALL_CLASSES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          Class {c}
-                        </SelectItem>
+                        <SelectItem key={c} value={c}>Class {c}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Copy Type</Label>
-                  <Select
-                    value={newCopyType}
-                    onValueChange={(v) => setNewCopyType(v as CopyType)}
-                  >
-                    <SelectTrigger data-testid="select-new-copytype">
+                <div className="space-y-1">
+                  <Label className="text-xs">Type</Label>
+                  <Select value={newCopyType} onValueChange={(v) => setNewCopyType(v as CopyType)}>
+                    <SelectTrigger className="h-8 text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {COPY_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-sm">
-                  Number of copies{" "}
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  Copies{" "}
                   <span className="text-muted-foreground font-normal">
-                    (default: {getDefaultCount(newClass)})
+                    (default: {getStudentsCount(newClass)})
                   </span>
                 </Label>
                 <Input
                   type="number"
                   min="1"
-                  placeholder={`${getDefaultCount(newClass)}`}
+                  placeholder={`${getStudentsCount(newClass)}`}
                   value={newCount}
                   onChange={(e) => setNewCount(e.target.value)}
-                  className="bg-background"
-                  data-testid="input-new-count"
+                  className="h-8 text-sm bg-background"
                 />
               </div>
 
               <div className="flex gap-2 justify-end">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowAddForm(false)}
-                >
+                <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>
                   Cancel
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={handleAddTask}
-                  data-testid="button-confirm-add-task"
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Task
+                <Button size="sm" onClick={handleAddTask}>
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add
                 </Button>
               </div>
             </div>
           ) : (
             <Button
               variant="outline"
-              className="w-full gap-2 border-dashed"
+              className="w-full gap-2 border-dashed h-9 text-sm"
               onClick={() => setShowAddForm(true)}
-              data-testid="button-add-task"
             >
               <Plus className="h-4 w-4" />
               Add Task for This Day
