@@ -9,17 +9,19 @@ export interface ClassConfig {
 }
 
 export interface Task {
-  id: string; // unique
+  id: string;
   classId: ClassName;
   copyType: CopyType;
   assignedDate: string; // YYYY-MM-DD
   status: TaskStatus;
   checkedCount: number;
+  isManual?: boolean; // true if added manually by the teacher
 }
 
 export interface AppSettings {
   startDate: string; // YYYY-MM-DD
-  workingDays: number[]; // 0-6 (0 is Sun)
+  workingDays: number[]; // 0-6 (0=Sun, 1=Mon, ..., 6=Sat)
+  skipSecondSaturday: boolean; // exclude 2nd Sat of each month from auto-schedule
   classesConfig: ClassConfig[];
 }
 
@@ -31,3 +33,10 @@ export const DEFAULT_CLASSES: ClassConfig[] = [
   { id: "9D", name: "Class 9D", studentsCount: 40 },
   { id: "10C", name: "Class 10C", studentsCount: 40 },
 ];
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  startDate: new Date().toISOString().slice(0, 10),
+  workingDays: [1, 2, 3, 4, 5, 6], // Mon–Sat
+  skipSecondSaturday: true,
+  classesConfig: DEFAULT_CLASSES,
+};
