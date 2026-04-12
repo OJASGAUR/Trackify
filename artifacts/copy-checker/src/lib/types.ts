@@ -12,17 +12,18 @@ export interface Task {
   id: string;
   classId: ClassName;
   copyType: CopyType;
-  assignedDate: string; // YYYY-MM-DD
+  assignedDate: string;
   status: TaskStatus;
   checkedCount: number;
-  isManual?: boolean; // true if added manually by the teacher
+  isManual?: boolean;
 }
 
 export interface AppSettings {
-  startDate: string; // YYYY-MM-DD
-  workingDays: number[]; // 0-6 (0=Sun, 1=Mon, ..., 6=Sat)
-  skipSecondSaturday: boolean; // exclude 2nd Sat of each month from auto-schedule
+  startDate: string;
+  workingDays: number[];
+  skipSecondSaturday: boolean;
   classesConfig: ClassConfig[];
+  defaultCopiesPerDay: number;
 }
 
 export const DEFAULT_CLASSES: ClassConfig[] = [
@@ -36,7 +37,8 @@ export const DEFAULT_CLASSES: ClassConfig[] = [
 
 export const DEFAULT_SETTINGS: AppSettings = {
   startDate: new Date().toISOString().slice(0, 10),
-  workingDays: [1, 2, 3, 4, 5, 6], // Mon–Sat
+  workingDays: [1, 2, 3, 4, 5, 6],
   skipSecondSaturday: true,
   classesConfig: DEFAULT_CLASSES,
+  defaultCopiesPerDay: 20,
 };
