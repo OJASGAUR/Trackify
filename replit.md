@@ -2,7 +2,7 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+Trackify — Copy Checker: A scheduling and tracking app for an English teacher to manage homework and classwork copy checking across 6 classes (~40 students each). Frontend-only app using localStorage for persistence.
 
 ## Stack
 
@@ -10,18 +10,28 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
+- **Routing**: wouter
+- **State**: localStorage via custom hooks
+- **API framework**: Express 5 (api-server, not used by copy-checker)
+- **Database**: PostgreSQL + Drizzle ORM (not used by copy-checker)
+
+## App Structure
+
+- `artifacts/copy-checker/` — Main web app (React + Vite)
+  - `src/pages/calendar.tsx` — Monthly calendar with task assignments
+  - `src/pages/progress.tsx` — Progress dashboard with percentage bars
+  - `src/pages/settings.tsx` — Class configuration and scheduling rules
+  - `src/lib/schedule.ts` — Scheduling algorithm
+  - `src/hooks/use-store.tsx` — App state context (localStorage)
+  - `src/components/layout.tsx` — Sidebar navigation layout
+
+## Classes
+
+6A, 6B, 7D, 8B, 9D, 10C — each with ~40 students, 2 copy types (homework + classwork) = 480 total copies/month
 
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
-
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+- `pnpm --filter @workspace/copy-checker run dev` — run copy checker locally
