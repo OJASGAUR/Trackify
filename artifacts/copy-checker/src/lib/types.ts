@@ -12,18 +12,23 @@ export interface Task {
   id: string;
   classId: ClassName;
   copyType: CopyType;
-  assignedDate: string;
+  assignedDate: string; // YYYY-MM-DD
   status: TaskStatus;
   checkedCount: number;
   isManual?: boolean;
+  // Part info (v2 schedule format)
+  partIndex?: number;   // 1-based (1, 2, ...)
+  totalParts?: number;  // how many parts this class×type is split into
+  partTotal?: number;   // total copies in this part (e.g. 20)
+  partStart?: number;   // first student index in this part (1-based)
 }
 
 export interface AppSettings {
-  startDate: string;
-  workingDays: number[];
+  startDate: string; // YYYY-MM-DD
+  workingDays: number[]; // 0-6 (0=Sun, 1=Mon, ..., 6=Sat)
   skipSecondSaturday: boolean;
   classesConfig: ClassConfig[];
-  defaultCopiesPerDay: number;
+  defaultCopiesPerDay: number; // how many copies to assign per task slot (default 20)
 }
 
 export const DEFAULT_CLASSES: ClassConfig[] = [
@@ -37,7 +42,7 @@ export const DEFAULT_CLASSES: ClassConfig[] = [
 
 export const DEFAULT_SETTINGS: AppSettings = {
   startDate: new Date().toISOString().slice(0, 10),
-  workingDays: [1, 2, 3, 4, 5, 6],
+  workingDays: [1, 2, 3, 4, 5, 6], // Mon–Sat
   skipSecondSaturday: true,
   classesConfig: DEFAULT_CLASSES,
   defaultCopiesPerDay: 20,

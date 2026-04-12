@@ -33,6 +33,19 @@ import { cn } from "@/lib/utils";
 const ALL_CLASSES: ClassName[] = ["6A", "6B", "7D", "8B", "9D", "10C"];
 const COPY_TYPES: CopyType[] = ["Homework", "Classwork"];
 
+function getTaskTotal(task: Task, studentsCount: number): number {
+  // v2: use partTotal; v1/manual: use studentsCount
+  return task.partTotal ?? studentsCount;
+}
+
+function getPartLabel(task: Task): string | null {
+  if (task.partIndex === undefined || task.totalParts === undefined) return null;
+  if (task.totalParts <= 1) return null;
+  const start = task.partStart ?? 1;
+  const end = start + (task.partTotal ?? 0) - 1;
+  return `Part ${task.partIndex} — students ${start}–${end}`;
+}
+
 export function TaskDialog({
   dateStr,
   open,
@@ -49,34 +62,32 @@ export function TaskDialog({
   const [editingPartial, setEditingPartial] = useState<string | null>(null);
   const [partialValue, setPartialValue] = useState("");
 
-  // Add-task form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [newClass, setNewClass] = useState<ClassName>("6A");
   const [newCopyType, setNewCopyType] = useState<CopyType>("Homework");
   const [newCount, setNewCount] = useState<string>("");
 
   const getDefaultCount = (classId: ClassName) => {
-    return (
-      settings.classesConfig.find((c) => c.id === classId)?.studentsCount ?? 40
-    );
+    return settings.classesConfig.find((c) => c.id === classId)?.studentsCount ?? 40;
   };
 
-  const handleMark = (taskId: string, status: "checked" | "skipped") => {
-    const task = dayTasks.find((t) => t.id === taskId);
-    if (!task) return;
-    const total =
-      settings.classesConfig.find((c) => c.id === task.classId)
-        ?.studentsCount ?? 40;
-    updateTask(taskId, {
+  const handleMark = (task: Task, status: "checked" | "skipped") => {
+    const studentsCount =
+      settings.classesConfig.find((c) => c.id === task.classId)?.studentsCount ?? 40;
+    const total = getTaskTotal(task, studentsCount);
+    updateTask(task.id, {
       status,
       checkedCount: status === "checked" ? total : 0,
     });
   };
 
-  const handleSavePartial = (taskId: string) => {
+  const handleSavePartial = (taskId: string, maxTotal: number) => {
     const val = parseInt(partialValue, 10);
     if (!isNaN(val) && val > 0) {
-      updateTask(taskId, { status: "partial", checkedCount: val });
+      updateTask(taskId, {
+        status: "partial",
+        checkedCount: Math.min(val, maxTotal),
+      });
     }
     setEditingPartial(null);
   };
@@ -84,10 +95,7 @@ export function TaskDialog({
   const handleAddTask = () => {
     const count = parseInt(newCount, 10);
     const total = isNaN(count) || count <= 0 ? getDefaultCount(newClass) : count;
-
-    // Generate a unique id for manual tasks
     const id = `manual-${newClass}-${newCopyType}-${dateStr}-${Date.now()}`;
-
     const task: Task = {
       id,
       classId: newClass,
@@ -96,14 +104,9 @@ export function TaskDialog({
       status: "pending",
       checkedCount: 0,
       isManual: true,
+      partTotal: total,
     };
-
-    // Override the checkedCount hint we'll use for display
-    addTask({ ...task, checkedCount: 0 });
-    // Store the intended total in checkedCount placeholder is not ideal; we rely on settings
-    // Actually let's just store it as part of the class config lookup - it's fine.
-
-    // Reset form
+    addTask(task);
     setNewClass("6A");
     setNewCopyType("Homework");
     setNewCount("");
@@ -124,16 +127,16 @@ export function TaskDialog({
         </DialogHeader>
 
         <div className="space-y-4 mt-2">
-          {/* Existing tasks */}
           {dayTasks.length === 0 && !showAddForm ? (
             <div className="text-center py-6 text-muted-foreground bg-muted/30 rounded-lg border border-dashed">
               No tasks for this day yet.
             </div>
           ) : (
             dayTasks.map((task) => {
-              const total =
-                settings.classesConfig.find((c) => c.id === task.classId)
-                  ?.studentsCount ?? 40;
+              const studentsCount =
+                settings.classesConfig.find((c) => c.id === task.classId)?.studentsCount ?? 40;
+              const total = getTaskTotal(task, studentsCount);
+              const partLabel = getPartLabel(task);
 
               return (
                 <div
@@ -149,7 +152,7 @@ export function TaskDialog({
                       : "bg-card border-border hover:border-primary/30"
                   )}
                 >
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-1">
                     <div>
                       <h4 className="font-bold text-lg text-foreground flex items-center gap-2">
                         Class {task.classId} — {task.copyType}
@@ -162,6 +165,11 @@ export function TaskDialog({
                           <CheckCircle2 className="h-4 w-4 text-primary" />
                         )}
                       </h4>
+                      {partLabel && (
+                        <p className="text-xs text-muted-foreground font-medium mt-0.5">
+                          {partLabel}
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground mt-0.5">
                         {task.status === "partial"
                           ? `${task.checkedCount} / ${total} checked`
@@ -199,13 +207,11 @@ export function TaskDialog({
                         autoFocus
                         data-testid="input-partial-count"
                       />
-                      <span className="text-sm text-muted-foreground">
-                        / {total}
-                      </span>
+                      <span className="text-sm text-muted-foreground">/ {total}</span>
                       <div className="flex-1" />
                       <Button
                         size="sm"
-                        onClick={() => handleSavePartial(task.id)}
+                        onClick={() => handleSavePartial(task.id, total)}
                         data-testid="button-save-partial"
                       >
                         Save
@@ -227,7 +233,7 @@ export function TaskDialog({
                           task.status === "checked" &&
                             "bg-primary hover:bg-primary/90 text-white"
                         )}
-                        onClick={() => handleMark(task.id, "checked")}
+                        onClick={() => handleMark(task, "checked")}
                         data-testid={`button-check-${task.id}`}
                       >
                         <CheckCircle2 className="h-4 w-4 mr-2" />
@@ -253,7 +259,7 @@ export function TaskDialog({
                         size="sm"
                         variant={task.status === "skipped" ? "secondary" : "ghost"}
                         className="text-muted-foreground hover:text-foreground"
-                        onClick={() => handleMark(task.id, "skipped")}
+                        onClick={() => handleMark(task, "skipped")}
                         data-testid={`button-skip-${task.id}`}
                       >
                         <CircleDashed className="h-4 w-4 mr-2" />
@@ -268,7 +274,6 @@ export function TaskDialog({
 
           <Separator />
 
-          {/* Add task section */}
           {showAddForm ? (
             <div className="p-4 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 space-y-4">
               <h4 className="font-semibold text-foreground">Add Checking Task</h4>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { useLocalStorage } from "./use-local-storage";
 import { AppSettings, Task, DEFAULT_SETTINGS } from "../lib/types";
 import { generateSchedule } from "../lib/schedule";
@@ -23,33 +23,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     DEFAULT_SETTINGS
   );
 
-  // Migrate old settings that lack the skipSecondSaturday field
+  // Ensure migrated defaults exist
   const migratedSettings: AppSettings = {
     skipSecondSaturday: true,
+    workingDays: [1, 2, 3, 4, 5, 6],
+    defaultCopiesPerDay: 20,
     ...settings,
   };
 
   const [tasks, setTasks] = useLocalStorage<Task[]>("copy-checker-tasks", []);
 
-  // On mount or settings change, regenerate schedule if some combos are missing
+  // Track whether we've already done the initial regeneration this session
+  const didInitRef = useRef(false);
+
   useEffect(() => {
-    const newTasks = generateSchedule(migratedSettings, tasks);
-    if (newTasks.length > tasks.length) {
-      setTasks(newTasks);
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    // Detect old-format tasks: non-manual tasks without partIndex are v1 format
+    const hasOldFormat = tasks.some((t) => !t.isManual && t.partIndex === undefined);
+
+    if (hasOldFormat) {
+      // Keep manual tasks + already-marked auto tasks (don't lose progress)
+      const keepTasks = tasks.filter((t) => t.isManual || t.status !== "pending");
+      const fresh = generateSchedule(migratedSettings, keepTasks);
+      setTasks(fresh);
+    } else {
+      // Normal: add any missing slots
+      const newTasks = generateSchedule(migratedSettings, tasks);
+      if (newTasks.length > tasks.length) {
+        setTasks(newTasks);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migratedSettings.startDate, migratedSettings.workingDays, migratedSettings.skipSecondSaturday, migratedSettings.classesConfig]);
+  }, []);
 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
-      // When scheduling settings change, regenerate the full schedule
-      const nonManualKeys = new Set(
-        tasks.filter((t) => !t.isManual).map((t) => `${t.classId}-${t.copyType}`)
-      );
-      // Drop all non-manual tasks and regenerate
-      const manualTasks = tasks.filter((t) => t.isManual);
-      const fresh = generateSchedule(updated, manualTasks);
+      // Drop all pending non-manual tasks and regenerate with new settings
+      const keepTasks = tasks.filter((t) => t.isManual || t.status !== "pending");
+      const fresh = generateSchedule(updated, keepTasks);
       setTasks(fresh);
       return updated;
     });
@@ -63,7 +77,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const addTask = (task: Task) => {
     setTasks((prev) => {
-      // Avoid exact duplicate id
       if (prev.some((t) => t.id === task.id)) return prev;
       return [...prev, task];
     });
