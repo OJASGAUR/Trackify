@@ -36,7 +36,7 @@ function App() {
             <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden justify-center">
               <div className="flex w-full max-w-[1280px] min-h-full">
                 <Sidebar />
-                <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden relative flex flex-col pb-16 md:pb-0">
+                <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden relative flex flex-col pb-24 md:pb-0">
                   <Router />
                 </main>
                 <MobileNav />

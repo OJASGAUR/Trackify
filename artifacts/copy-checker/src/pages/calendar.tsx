@@ -70,8 +70,6 @@ function DraggableTask({
     id: task.id,
   });
 
-  const [dragStarted, setDragStarted] = useState(false);
-
   const style = transform
     ? {
         transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
@@ -84,21 +82,18 @@ function DraggableTask({
       style={style}
       {...listeners}
       {...attributes}
-      onMouseDown={() => setDragStarted(false)}
-      onMouseMove={() => setDragStarted(true)}
       onClick={(event) => {
-        if (!dragStarted) {
-          event.stopPropagation();
-          onClick();
-        }
+        event.stopPropagation();
+        onClick();
       }}
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium cursor-grab active:cursor-grabbing",
+        "inline-flex flex-col md:flex-row items-center justify-center md:justify-start gap-px md:gap-1 px-0.5 py-0.5 md:px-2 md:py-1 rounded-[4px] md:rounded-md text-[8px] md:text-xs font-medium cursor-grab active:cursor-grabbing w-full overflow-hidden text-center md:text-left leading-[1.1] md:leading-none whitespace-nowrap",
         getChipClass(task, isMissed),
         isDragging && "opacity-50"
       )}
     >
-      {task.classId} {task.copyType.slice(0, 2)}-{task.partIndex}
+      <span className="md:hidden block font-bold">{task.classId}</span>
+      <span className="hidden md:inline">{task.classId} {task.copyType.slice(0, 2)}-{task.partIndex}</span>
     </div>
   );
 }
@@ -135,7 +130,7 @@ export default function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(startOfMonth(getCurrentDate(settings)));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
-  const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
+  const [swipeStart, setSwipeStart] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const monthAdvanceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -144,7 +139,7 @@ export default function Calendar() {
     const task = tasks.find((t) => t.id === event.active.id);
     setDraggedTask(task || null);
     setIsDragging(true);
-    setSwipeStartX(null);
+    setSwipeStart(null);
   };
 
   const handlePrevMonth = () => setCurrentMonth((prev) => startOfMonth(addMonths(prev, -1)));
@@ -184,22 +179,29 @@ export default function Calendar() {
 
   const handleSwipeStart = (event: PointerEvent<HTMLDivElement>) => {
     if (isDragging) return;
-    setSwipeStartX(event.clientX);
+    setSwipeStart({ x: event.clientX, y: event.clientY });
   };
 
   const handleSwipeEnd = (event: PointerEvent<HTMLDivElement>) => {
-    if (isDragging || swipeStartX === null) {
-      setSwipeStartX(null);
+    if (isDragging || swipeStart === null) {
+      setSwipeStart(null);
       return;
     }
 
-    const delta = event.clientX - swipeStartX;
-    if (delta > 80) {
+    const deltaX = event.clientX - swipeStart.x;
+    const deltaY = event.clientY - swipeStart.y;
+    setSwipeStart(null);
+
+    // If scrolling mostly vertically, ignore the horizontal swipe attempt
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      return;
+    }
+
+    if (deltaX > 80) {
       handlePrevMonth();
-    } else if (delta < -80) {
+    } else if (deltaX < -80) {
       handleNextMonth();
     }
-    setSwipeStartX(null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
