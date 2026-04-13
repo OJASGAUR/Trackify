@@ -10,9 +10,6 @@ import { ToastAction } from "@/components/ui/toast";
 import { ClipboardCheck, BookOpen, PenTool, CheckCircle2 } from "lucide-react";
 import { ClassName, CopyType, Task } from "@/lib/types";
 
-function normalizePartIndex(task: Task): number {
-  return task.partIndex ?? 1;
-}
 
 type LastMarkAction = {
   taskIds: string[];
@@ -27,7 +24,6 @@ export default function MarkCheck() {
   const classOptions = settings.classesConfig;
   const [selectedClass, setSelectedClass] = useState<ClassName>(classOptions[0]?.id ?? "6A");
   const [selectedCopyType, setSelectedCopyType] = useState<CopyType>("Homework");
-  const [selectedPart, setSelectedPart] = useState("all");
 
   const allMatchingTasks = useMemo(
     () => {
@@ -41,24 +37,7 @@ export default function MarkCheck() {
     [tasks, selectedClass, selectedCopyType, settings]
   );
 
-  const partIndexes = useMemo(() => {
-    const unique = Array.from(new Set(allMatchingTasks.map(normalizePartIndex)));
-    return unique.sort((a, b) => a - b);
-  }, [allMatchingTasks]);
-
-  useEffect(() => {
-    if (selectedPart !== "all" && !partIndexes.includes(Number(selectedPart))) {
-      setSelectedPart("all");
-    }
-  }, [partIndexes, selectedPart]);
-
-  const selectedTasks = useMemo(
-    () =>
-      allMatchingTasks.filter((task) =>
-        selectedPart === "all" ? true : `${normalizePartIndex(task)}` === selectedPart
-      ),
-    [allMatchingTasks, selectedPart]
-  );
+  const selectedTasks = allMatchingTasks;
 
   const classInfo = settings.classesConfig.find((c) => c.id === selectedClass);
   const totalCopies = selectedTasks.reduce(
@@ -77,7 +56,7 @@ export default function MarkCheck() {
       };
     });
 
-    const label = `${selectedClass} ${selectedCopyType} ${selectedPart === "all" ? "All parts" : `Part ${selectedPart}`}`;
+    const label = `${selectedClass} ${selectedCopyType}`;
 
     setLastMarkAction({
       taskIds: selectedTasks.map((task) => task.id),
@@ -90,7 +69,7 @@ export default function MarkCheck() {
         if (task.classId !== selectedClass || task.copyType !== selectedCopyType) return false;
         if (!task.assignedDate) return false;
         if (format(parseISO(task.assignedDate), "yyyy-MM") !== format(getCurrentDate(settings), "yyyy-MM")) return false;
-        return selectedPart === "all" ? true : `${normalizePartIndex(task)}` === selectedPart;
+        return true;
       },
       (task) => ({
         status: "checked",
@@ -178,22 +157,6 @@ export default function MarkCheck() {
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Part</label>
-                <Select value={selectedPart} onValueChange={setSelectedPart}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose part" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All parts</SelectItem>
-                    {partIndexes.map((partIndex) => (
-                      <SelectItem key={partIndex} value={`${partIndex}`}>
-                        Part {partIndex}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
               <div className="rounded-2xl border border-border p-4 bg-muted/40">
                 <div className="flex items-center gap-3 mb-3">
@@ -254,7 +217,6 @@ export default function MarkCheck() {
                 </div>
                 <ul className="space-y-2 text-sm text-muted-foreground list-disc list-inside">
                   <li>Keep the calendar synced with what you’ve checked.</li>
-                  <li>Mark only the selected part or the complete copy set.</li>
                   <li>Progress updates immediately across the app.</li>
                 </ul>
               </div>
