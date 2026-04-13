@@ -30,6 +30,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const migratedSettings: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...settings,
+    defaultCopiesPerDay: 40,
   };
 
   const [tasks, setTasks] = useLocalStorage<Task[]>("copy-checker-tasks", []);
@@ -63,7 +64,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       const validTasks = initialTasks.filter((t) => t.assignedDate);
-      const latestSettings = { ...DEFAULT_SETTINGS, ...initialSettings };
+      const latestSettings = { ...DEFAULT_SETTINGS, ...initialSettings, defaultCopiesPerDay: 40 };
 
       const hasOldFormat = validTasks.some((t) => !t.isManual && t.partIndex === undefined);
       const hasTasksOnWrongDays = validTasks.some(
@@ -72,8 +73,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           t.status === "pending" &&
           !isWorkingDay(parseISO(t.assignedDate), latestSettings)
       );
+      const hasOldCopiesPerDay = validTasks.some(
+        (t) => !t.isManual && t.status === "pending" && t.partTotal !== 40 && t.partTotal !== undefined
+      );
 
-      if (hasOldFormat || hasTasksOnWrongDays) {
+      if (hasOldFormat || hasTasksOnWrongDays || hasOldCopiesPerDay) {
         const keepTasks = validTasks.filter((t) => t.isManual || t.status !== "pending");
         const fresh = generateSchedule(latestSettings, keepTasks);
         setTasks(fresh);
