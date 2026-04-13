@@ -2,6 +2,8 @@ import { useStore } from "@/hooks/use-store";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, TrendingUp, BookOpen, PenTool } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import { getCurrentDate } from "@/lib/schedule";
 
 export default function ProgressDashboard() {
   const { tasks, settings } = useStore();
@@ -19,7 +21,11 @@ export default function ProgressDashboard() {
     classStats[c.id] = { hw: 0, cw: 0, total: 0, checked: 0, max: 0, hwTotal: 0, cwTotal: 0 };
   });
 
+  const currentMonthKey = format(getCurrentDate(settings), "yyyy-MM");
+
   tasks.forEach(t => {
+    if (!t.assignedDate || format(parseISO(t.assignedDate), "yyyy-MM") !== currentMonthKey) return;
+
     const classConfig = settings.classesConfig.find(c => c.id === t.classId);
     if (!classConfig) return;
 
