@@ -45,7 +45,7 @@ export default function ProgressDashboard() {
 
   return (
     <div className="flex-1 flex flex-col min-h-screen">
-      <div className="p-6 md:p-8 flex-1 max-w-6xl mx-auto w-full">
+      <div className="p-6 md:p-8 flex-1 max-w-5xl mx-auto w-full">
         <header className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Progress</h1>
           <p className="text-muted-foreground">Track your copy checking milestones for the month.</p>

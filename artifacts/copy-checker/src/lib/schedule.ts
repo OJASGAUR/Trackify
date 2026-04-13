@@ -1,13 +1,20 @@
 import {
   format,
   addDays,
+  addMonths,
   getDay,
   isBefore,
   parseISO,
   endOfMonth,
   eachDayOfInterval,
+  eachMonthOfInterval,
+  startOfMonth,
 } from "date-fns";
 import { AppSettings, Task, ClassName, CopyType } from "./types";
+
+export function getCurrentDate(settings: AppSettings): Date {
+  return settings.testDate ? parseISO(settings.testDate) : new Date();
+}
 
 export function isSecondSaturday(date: Date): boolean {
   if (getDay(date) !== 6) return false;
@@ -69,95 +76,154 @@ function buildAllSlots(settings: AppSettings): ComboSlot[] {
   return slots;
 }
 
-/** Working day strings from today (or startDate if later) through end of current month */
-function collectWorkingDatesInMonth(settings: AppSettings): string[] {
-  const today = parseISO(format(new Date(), "yyyy-MM-dd"));
-  const startDate = parseISO(settings.startDate);
-  const from = isBefore(startDate, today) ? today : startDate;
-  const monthEnd = endOfMonth(from);
-  return eachDayOfInterval({ start: from, end: monthEnd })
+/** Working day strings for a single month */
+function collectWorkingDatesInMonth(settings: AppSettings, monthDate: Date, fromDate?: Date): string[] {
+  const start = fromDate && format(monthDate, "yyyy-MM") === format(fromDate, "yyyy-MM")
+    ? (isBefore(monthDate, fromDate) ? fromDate : monthDate)
+    : monthDate;
+
+  return eachDayOfInterval({ start, end: endOfMonth(monthDate) })
     .filter((d) => isWorkingDay(d, settings))
     .map((d) => format(d, "yyyy-MM-dd"));
 }
 
-/** Future Sundays after today (up to 90 days ahead) as genuine last-resort overflow */
-function collectSundayFallbacks(): string[] {
-  const today = parseISO(format(new Date(), "yyyy-MM-dd"));
-  const dates: string[] = [];
-  let cur = addDays(today, 1);
-  const limit = addDays(today, 90);
-  while (cur <= limit) {
-    if (getDay(cur) === 0) dates.push(format(cur, "yyyy-MM-dd"));
-    cur = addDays(cur, 1);
-  }
-  return dates;
+/** Sunday fallbacks within a single month */
+function collectSundayFallbacksInMonth(monthDate: Date): string[] {
+  return eachDayOfInterval({ start: monthDate, end: endOfMonth(monthDate) })
+    .filter((d) => getDay(d) === 0)
+    .map((d) => format(d, "yyyy-MM-dd"));
 }
 
 /** Maximum auto-tasks allowed on a single day */
-const MAX_PER_DAY = 3;
+const MAX_PER_DAY = 2;
+
+interface MonthlySlot extends ComboSlot {
+  monthKey: string;
+}
+
+function buildMonthlySlots(settings: AppSettings): MonthlySlot[] {
+  const allSlots = buildAllSlots(settings);
+  const today = parseISO(format(getCurrentDate(settings), "yyyy-MM-dd"));
+  const startDate = parseISO(settings.startDate);
+  const from = isBefore(startDate, today) ? today : startDate;
+  const horizon = addMonths(startOfMonth(from), 11);
+
+  return eachMonthOfInterval({ start: startOfMonth(from), end: horizon }).flatMap((monthDate) => {
+    const monthKey = format(monthDate, "yyyy-MM");
+    return allSlots.map((slot) => ({ ...slot, monthKey }));
+  });
+}
+
+function choosePreferredTask(a: Task, b: Task): Task {
+  const rank: Record<Task["status"], number> = {
+    pending: 1,
+    partial: 2,
+    checked: 3,
+    skipped: 3,
+  };
+  if (rank[a.status] !== rank[b.status]) return rank[a.status] > rank[b.status] ? a : b;
+  return a.checkedCount >= b.checkedCount ? a : b;
+}
 
 export function generateSchedule(settings: AppSettings, existingTasks: Task[] = []): Task[] {
-  const allSlots = buildAllSlots(settings);
+  const today = parseISO(format(getCurrentDate(settings), "yyyy-MM-dd"));
+  const startDate = parseISO(settings.startDate);
+  const from = isBefore(startDate, today) ? today : startDate;
+  const monthStarts = eachMonthOfInterval({ start: startOfMonth(from), end: addMonths(startOfMonth(from), 11) });
+  const monthlySlots = monthStarts.flatMap((monthDate) => {
+    const monthKey = format(monthDate, "yyyy-MM");
+    return buildAllSlots(settings).map((slot) => ({ ...slot, monthKey }));
+  });
 
-  // Which auto slots are already scheduled (v2 format = has partIndex)
-  const scheduledKeys = new Set(
-    existingTasks
-      .filter((t) => !t.isManual && t.partIndex !== undefined)
-      .map((t) => t.id)
-  );
+  const dedupedTasks: Task[] = [];
+  const autoTaskMap = new Map<string, Task>();
 
-  const unscheduled = allSlots.filter(
-    (s) => !scheduledKeys.has(`${s.classId}-${s.copyType}-pt${s.partIndex}`)
-  );
+  for (const task of existingTasks) {
+    if (!task.assignedDate) continue;
+    if (task.isManual) {
+      dedupedTasks.push(task);
+      continue;
+    }
+    if (task.partIndex === undefined) continue;
 
-  if (unscheduled.length === 0) return [...existingTasks];
+    const taskMonthKey = format(parseISO(task.assignedDate), "yyyy-MM");
+    const idMonthCandidate = task.id.split("-").slice(-1)[0];
+    const hasIdMonth = /^\d{4}-\d{2}$/.test(idMonthCandidate);
+    if (hasIdMonth && idMonthCandidate !== taskMonthKey) continue;
 
-  // Build date pool: try working days only first.
-  // Only pull in Sunday fallbacks if even MAX_PER_DAY tasks/day isn't enough.
-  const workingDates = collectWorkingDatesInMonth(settings);
-  const datePool = [...workingDates];
+    const key = `${task.classId}-${task.copyType}-pt${task.partIndex}-${taskMonthKey}`;
+    const existing = autoTaskMap.get(key);
+    autoTaskMap.set(key, existing ? choosePreferredTask(task, existing) : task);
+  }
 
-  if (workingDates.length * MAX_PER_DAY < unscheduled.length) {
-    // Genuinely need extra days — use future Sundays as overflow
-    for (const d of collectSundayFallbacks()) {
-      if (!datePool.includes(d)) datePool.push(d);
-      if (datePool.length * MAX_PER_DAY >= unscheduled.length) break;
+  dedupedTasks.push(...autoTaskMap.values());
+
+  const scheduledKeys = new Set<string>([...autoTaskMap.keys()]);
+  const unscheduledByMonth = new Map<string, MonthlySlot[]>();
+
+  for (const slot of monthlySlots) {
+    const key = `${slot.classId}-${slot.copyType}-pt${slot.partIndex}-${slot.monthKey}`;
+    if (!scheduledKeys.has(key)) {
+      unscheduledByMonth.set(slot.monthKey, [...(unscheduledByMonth.get(slot.monthKey) ?? []), slot]);
     }
   }
 
-  if (datePool.length === 0) return [...existingTasks];
+  if (unscheduledByMonth.size === 0) return dedupedTasks;
 
-  // How many tasks per day (spread evenly, at most MAX_PER_DAY)
-  const tasksPerDay = Math.min(
-    MAX_PER_DAY,
-    Math.ceil(unscheduled.length / datePool.length)
-  );
-
-  // Assign slots across dates
-  const newTasks: Task[] = [];
-  let di = 0;
-  let countOnDate = 0;
-
-  for (const slot of unscheduled) {
-    if (countOnDate >= tasksPerDay && di < datePool.length - 1) {
-      di++;
-      countOnDate = 0;
-    }
-    newTasks.push({
-      id: `${slot.classId}-${slot.copyType}-pt${slot.partIndex}`,
-      classId: slot.classId,
-      copyType: slot.copyType,
-      assignedDate: datePool[di],
-      status: "pending",
-      checkedCount: 0,
-      isManual: false,
-      partIndex: slot.partIndex,
-      totalParts: slot.totalParts,
-      partTotal: slot.partTotal,
-      partStart: slot.partStart,
-    });
-    countOnDate++;
+  const assignmentCounts = new Map<string, number>();
+  for (const task of dedupedTasks) {
+    if (!task.assignedDate) continue;
+    assignmentCounts.set(task.assignedDate, (assignmentCounts.get(task.assignedDate) ?? 0) + 1);
   }
 
-  return [...existingTasks, ...newTasks];
+  const generatedTasks: Task[] = [];
+
+  for (const monthDate of monthStarts) {
+    const monthKey = format(monthDate, "yyyy-MM");
+    const slots = unscheduledByMonth.get(monthKey) ?? [];
+    if (!slots.length) continue;
+
+    const monthStart = monthDate;
+    const monthFrom = format(monthStart, "yyyy-MM") === format(from, "yyyy-MM") ? from : monthStart;
+    const workingDates = collectWorkingDatesInMonth(settings, monthStart, monthFrom);
+    const datePool = [...workingDates];
+
+    if (workingDates.length * MAX_PER_DAY < slots.length) {
+      for (const d of collectSundayFallbacksInMonth(monthStart)) {
+        if (!datePool.includes(d)) datePool.push(d);
+        if (datePool.length * MAX_PER_DAY >= slots.length) break;
+      }
+    }
+
+    const sortedDates = () =>
+      [...datePool].sort((a, b) => {
+        const countA = assignmentCounts.get(a) ?? 0;
+        const countB = assignmentCounts.get(b) ?? 0;
+        if (countA !== countB) return countA - countB;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+
+    for (const slot of slots) {
+      const [date] = sortedDates();
+      if (!date) break;
+
+      generatedTasks.push({
+        id: `${slot.classId}-${slot.copyType}-pt${slot.partIndex}-${slot.monthKey}`,
+        classId: slot.classId,
+        copyType: slot.copyType,
+        assignedDate: date,
+        status: "pending",
+        checkedCount: 0,
+        isManual: false,
+        partIndex: slot.partIndex,
+        totalParts: slot.totalParts,
+        partTotal: slot.partTotal,
+        partStart: slot.partStart,
+      });
+
+      assignmentCounts.set(date, (assignmentCounts.get(date) ?? 0) + 1);
+    }
+  }
+
+  return [...dedupedTasks, ...generatedTasks];
 }

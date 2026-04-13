@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
+import { getCurrentDate } from "@/lib/schedule";
 import {
   Dialog,
   DialogContent,
@@ -74,7 +75,11 @@ export function TaskDialog({
 
   const handleMark = (task: Task, status: "checked" | "skipped") => {
     const total = getTaskTotal(task, getStudentsCount(task.classId));
-    updateTask(task.id, { status, checkedCount: status === "checked" ? total : 0 });
+    if (task.status === status) {
+      updateTask(task.id, { status: "pending", checkedCount: 0 });
+    } else {
+      updateTask(task.id, { status, checkedCount: status === "checked" ? total : 0 });
+    }
   };
 
   const handleSavePartial = (taskId: string, maxTotal: number) => {
@@ -201,7 +206,7 @@ export function TaskDialog({
                         type="date"
                         className="flex-1 text-sm h-8"
                         value={moveDate}
-                        min={format(new Date(), "yyyy-MM-dd")}
+                        min={format(getCurrentDate(settings), "yyyy-MM-dd")}
                         onChange={(e) => setMoveDate(e.target.value)}
                         autoFocus
                       />

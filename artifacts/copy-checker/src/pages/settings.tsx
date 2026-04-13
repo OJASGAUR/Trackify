@@ -280,6 +280,47 @@ export default function Settings() {
             </CardFooter>
           </Card>
 
+          {/* Test Date Override */}
+          <Card className="border-border shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-secondary" />
+                Test Date Override
+              </CardTitle>
+              <CardDescription>
+                Set a test date to simulate the app behavior on a different date. Leave empty to use the current date.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="test-date">Test Date</Label>
+                    <Input
+                      id="test-date"
+                      type="date"
+                      value={localSettings.testDate || ""}
+                      onChange={(e) =>
+                        setLocalSettings((prev) => ({
+                          ...prev,
+                          testDate: e.target.value || undefined,
+                        }))
+                      }
+                      className="bg-background"
+                      data-testid="input-test-date"
+                    />
+                  </div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
+                  <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    This affects scheduling and calendar display. Clear the field to return to the real current date.
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Danger Zone */}
           <Card className="border-destructive/20 bg-destructive/5 shadow-sm mt-12">
             <CardHeader>

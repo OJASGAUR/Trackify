@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Calendar as CalendarIcon, CheckSquare, Settings } from "lucide-react";
+import { Calendar as CalendarIcon, CheckSquare, Settings, ClipboardCheck, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
@@ -7,8 +7,10 @@ export function Sidebar() {
 
   const links = [
     { href: "/", label: "Calendar", icon: CalendarIcon },
+    { href: "/mark-check", label: "Mark as Checked", icon: ClipboardCheck },
     { href: "/progress", label: "Progress", icon: CheckSquare },
     { href: "/settings", label: "Settings", icon: Settings },
+    { href: "/about", label: "About", icon: Heart },
   ];
 
   return (
@@ -56,8 +58,10 @@ export function MobileNav() {
   const [location] = useLocation();
   const links = [
     { href: "/", label: "Calendar", icon: CalendarIcon },
+    { href: "/mark-check", label: "Mark as Checked", icon: ClipboardCheck },
     { href: "/progress", label: "Progress", icon: CheckSquare },
     { href: "/settings", label: "Settings", icon: Settings },
+    { href: "/about", label: "About", icon: Heart },
   ];
 
   return (

@@ -29,6 +29,7 @@ export interface AppSettings {
   skipSecondSaturday: boolean;
   classesConfig: ClassConfig[];
   defaultCopiesPerDay: number; // how many copies to assign per task slot (default 20)
+  testDate?: string;
 }
 
 export const DEFAULT_CLASSES: ClassConfig[] = [

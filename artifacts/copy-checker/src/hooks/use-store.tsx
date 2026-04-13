@@ -1,14 +1,17 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalStorage } from "./use-local-storage";
 import { AppSettings, Task, DEFAULT_SETTINGS } from "../lib/types";
-import { generateSchedule, isWorkingDay } from "../lib/schedule";
+import { generateSchedule, getCurrentDate, isWorkingDay } from "../lib/schedule";
 import { format, parseISO } from "date-fns";
+import { isSupabaseConfigured } from "../lib/supabase";
+import { loadRemoteStore, saveRemoteStore } from "../lib/remote-store";
 
 interface StoreContextType {
   settings: AppSettings;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   tasks: Task[];
   updateTask: (taskId: string, updates: Partial<Task>) => void;
+  bulkUpdateTasks: (filter: (task: Task) => boolean, updater: (task: Task) => Partial<Task>) => void;
   rescheduleTask: (taskId: string, newDate: string) => void;
   addTask: (task: Task) => void;
   removeTask: (taskId: string) => void;
@@ -25,46 +28,82 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const migratedSettings: AppSettings = {
-    skipSecondSaturday: true,
-    workingDays: [1, 2, 3, 4, 5, 6],
-    defaultCopiesPerDay: 20,
+    ...DEFAULT_SETTINGS,
     ...settings,
   };
 
   const [tasks, setTasks] = useLocalStorage<Task[]>("copy-checker-tasks", []);
-
+  const [remoteReady, setRemoteReady] = useState(false);
   const didInitRef = useRef(false);
+  const remoteHydratedRef = useRef(false);
+  const useRemoteStore = isSupabaseConfigured && import.meta.env.VITE_USE_SUPABASE === "true";
 
   useEffect(() => {
     if (didInitRef.current) return;
     didInitRef.current = true;
 
-    // Detect old v1 format (no partIndex) or tasks that landed on non-working days
-    const hasOldFormat = tasks.some((t) => !t.isManual && t.partIndex === undefined);
-    const hasTasksOnWrongDays = tasks.some(
-      (t) =>
-        !t.isManual &&
-        t.status === "pending" &&
-        !isWorkingDay(parseISO(t.assignedDate), migratedSettings)
-    );
+    const initializeStore = async () => {
+      let initialSettings = settings;
+      let initialTasks = tasks;
 
-    if (hasOldFormat || hasTasksOnWrongDays) {
-      // Keep manual tasks + already-marked auto tasks (preserve any progress)
-      const keepTasks = tasks.filter((t) => t.isManual || t.status !== "pending");
-      const fresh = generateSchedule(migratedSettings, keepTasks);
-      setTasks(fresh);
-    } else {
-      const newTasks = generateSchedule(migratedSettings, tasks);
-      if (newTasks.length > tasks.length) setTasks(newTasks);
-    }
+      if (useRemoteStore) {
+        const [remoteSettings, remoteTasks] = await Promise.all([
+          loadRemoteStore<AppSettings>("settings"),
+          loadRemoteStore<Task[]>("tasks"),
+        ]);
+
+        if (remoteSettings) {
+          initialSettings = remoteSettings;
+          setSettings(remoteSettings);
+        }
+        if (remoteTasks) {
+          initialTasks = remoteTasks;
+          setTasks(remoteTasks);
+        }
+      }
+
+      const validTasks = initialTasks.filter((t) => t.assignedDate);
+      const latestSettings = { ...DEFAULT_SETTINGS, ...initialSettings };
+
+      const hasOldFormat = validTasks.some((t) => !t.isManual && t.partIndex === undefined);
+      const hasTasksOnWrongDays = validTasks.some(
+        (t) =>
+          !t.isManual &&
+          t.status === "pending" &&
+          !isWorkingDay(parseISO(t.assignedDate), latestSettings)
+      );
+
+      if (hasOldFormat || hasTasksOnWrongDays) {
+        const keepTasks = validTasks.filter((t) => t.isManual || t.status !== "pending");
+        const fresh = generateSchedule(latestSettings, keepTasks);
+        setTasks(fresh);
+      } else {
+        const newTasks = generateSchedule(latestSettings, validTasks);
+        if (newTasks.length !== validTasks.length) setTasks(newTasks);
+      }
+
+      remoteHydratedRef.current = true;
+      setRemoteReady(true);
+    };
+
+    initializeStore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
-      // Drop pending non-manual tasks and regenerate
-      const keepTasks = tasks.filter((t) => t.isManual || t.status !== "pending");
+      const hasNonTestDateChanges =
+        prev.startDate !== updated.startDate ||
+        prev.defaultCopiesPerDay !== updated.defaultCopiesPerDay ||
+        prev.skipSecondSaturday !== updated.skipSecondSaturday ||
+        JSON.stringify(prev.workingDays) !== JSON.stringify(updated.workingDays) ||
+        JSON.stringify(prev.classesConfig) !== JSON.stringify(updated.classesConfig);
+
+      const keepTasks = prev.testDate !== updated.testDate && !hasNonTestDateChanges
+        ? tasks.filter((t) => t.assignedDate)
+        : tasks.filter((t) => t.isManual || t.status !== "pending");
+
       const fresh = generateSchedule(updated, keepTasks);
       setTasks(fresh);
       return updated;
@@ -73,6 +112,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateTask = (taskId: string, updates: Partial<Task>) => {
     setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)));
+  };
+
+  const bulkUpdateTasks = (
+    filter: (task: Task) => boolean,
+    updater: (task: Task) => Partial<Task>
+  ) => {
+    setTasks((prev) => prev.map((t) => (filter(t) ? { ...t, ...updater(t) } : t)));
   };
 
   /**
@@ -112,9 +158,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getMissedPastTasks = () => {
-    const today = format(new Date(), "yyyy-MM-dd");
+    const today = format(getCurrentDate(migratedSettings), "yyyy-MM-dd");
     return tasks.filter((t) => t.assignedDate < today && t.status === "pending");
   };
+
+  useEffect(() => {
+    if (!useRemoteStore || !remoteHydratedRef.current) return;
+    saveRemoteStore("settings", migratedSettings);
+    saveRemoteStore("tasks", tasks);
+  }, [migratedSettings, tasks, useRemoteStore]);
 
   const value = useMemo(
     () => ({
@@ -122,6 +174,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateSettings,
       tasks,
       updateTask,
+      bulkUpdateTasks,
       rescheduleTask,
       addTask,
       removeTask,
