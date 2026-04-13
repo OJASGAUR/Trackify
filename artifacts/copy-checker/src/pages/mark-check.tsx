@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { format, parseISO } from "date-fns";
 import { useStore } from "@/hooks/use-store";
 import { useToast } from "@/hooks/use-toast";
+import { getCurrentDate } from "@/lib/schedule";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,8 +30,15 @@ export default function MarkCheck() {
   const [selectedPart, setSelectedPart] = useState("all");
 
   const allMatchingTasks = useMemo(
-    () => tasks.filter((task) => task.classId === selectedClass && task.copyType === selectedCopyType),
-    [tasks, selectedClass, selectedCopyType]
+    () => {
+      const currentMonth = format(getCurrentDate(settings), "yyyy-MM");
+      return tasks.filter((task) => {
+        if (task.classId !== selectedClass || task.copyType !== selectedCopyType) return false;
+        if (!task.assignedDate) return false;
+        return format(parseISO(task.assignedDate), "yyyy-MM") === currentMonth;
+      });
+    },
+    [tasks, selectedClass, selectedCopyType, settings]
   );
 
   const partIndexes = useMemo(() => {
@@ -77,10 +86,12 @@ export default function MarkCheck() {
     });
 
     bulkUpdateTasks(
-      (task) =>
-        task.classId === selectedClass &&
-        task.copyType === selectedCopyType &&
-        (selectedPart === "all" ? true : `${normalizePartIndex(task)}` === selectedPart),
+      (task) => {
+        if (task.classId !== selectedClass || task.copyType !== selectedCopyType) return false;
+        if (!task.assignedDate) return false;
+        if (format(parseISO(task.assignedDate), "yyyy-MM") !== format(getCurrentDate(settings), "yyyy-MM")) return false;
+        return selectedPart === "all" ? true : `${normalizePartIndex(task)}` === selectedPart;
+      },
       (task) => ({
         status: "checked",
         checkedCount: task.partTotal ?? classInfo?.studentsCount ?? 0,
