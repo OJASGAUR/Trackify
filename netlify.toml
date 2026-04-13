@@ -5,8 +5,8 @@
 
 [context.production.environment]
   VITE_USE_SUPABASE = "true"
-
-# Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify site settings.
+  VITE_SUPABASE_URL = "https://hmpabfyojvdulxvozsdc.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "sb_publishable_yi2uGRRY2j4M54lWbL4O5w_bg5P6XMb"
 
 [[redirects]]
   from = "/*"
