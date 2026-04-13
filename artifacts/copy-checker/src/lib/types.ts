@@ -28,7 +28,7 @@ export interface AppSettings {
   workingDays: number[]; // 0-6 (0=Sun, 1=Mon, ..., 6=Sat)
   skipSecondSaturday: boolean;
   classesConfig: ClassConfig[];
-  defaultCopiesPerDay: number; // how many copies to assign per task slot (default 20)
+  defaultCopiesPerDay: number; // how many copies to assign per task slot (default 40)
   testDate?: string;
 }
 
@@ -46,5 +46,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workingDays: [1, 2, 3, 4, 5, 6], // Mon–Sat
   skipSecondSaturday: true,
   classesConfig: DEFAULT_CLASSES,
-  defaultCopiesPerDay: 20,
+  defaultCopiesPerDay: 40,
 };

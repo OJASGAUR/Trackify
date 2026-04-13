@@ -195,33 +195,67 @@ export function generateSchedule(settings: AppSettings, existingTasks: Task[] = 
       }
     }
 
-    const sortedDates = () =>
-      [...datePool].sort((a, b) => {
-        const countA = assignmentCounts.get(a) ?? 0;
-        const countB = assignmentCounts.get(b) ?? 0;
-        if (countA !== countB) return countA - countB;
-        return a < b ? -1 : a > b ? 1 : 0;
-      });
+    datePool.sort((a, b) => a.localeCompare(b));
+    const M = datePool.length;
+    const N = slots.length;
 
-    for (const slot of slots) {
-      const [date] = sortedDates();
-      if (!date) break;
+    // chunk into weeks (6 is number of classes typically)
+    const chunkSize = 6;
+    const chunks: (typeof slots)[] = [];
+    for (let i = 0; i < N; i += chunkSize) {
+      chunks.push(slots.slice(i, i + chunkSize));
+    }
+    const numChunks = chunks.length;
 
-      generatedTasks.push({
-        id: `${slot.classId}-${slot.copyType}-pt${slot.partIndex}-${slot.monthKey}`,
-        classId: slot.classId,
-        copyType: slot.copyType,
-        assignedDate: date,
-        status: "pending",
-        checkedCount: 0,
-        isManual: false,
-        partIndex: slot.partIndex,
-        totalParts: slot.totalParts,
-        partTotal: slot.partTotal,
-        partStart: slot.partStart,
-      });
+    let dateIndex = 0;
 
-      assignmentCounts.set(date, (assignmentCounts.get(date) ?? 0) + 1);
+    for (let c = 0; c < numChunks; c++) {
+      const chunk = chunks[c];
+      
+      let chunkStartIndex: number;
+      if (numChunks * chunkSize <= M) {
+        // distribute chunks evenly across available days
+        chunkStartIndex = Math.floor((c * M) / numChunks);
+      } else {
+        // dense fallback
+        chunkStartIndex = dateIndex;
+      }
+
+      for (let i = 0; i < chunk.length; i++) {
+        const slot = chunk[i];
+        
+        let date: string;
+        if (numChunks * chunkSize <= M) {
+          // just read sequentially from chunk start
+          date = datePool[Math.min(chunkStartIndex + i, M - 1)];
+        } else {
+          // dense distribution fallback based on lowest assignment counts
+          const sortedDates = [...datePool].sort((a, b) => {
+            const countA = assignmentCounts.get(a) ?? 0;
+            const countB = assignmentCounts.get(b) ?? 0;
+            if (countA !== countB) return countA - countB;
+            return a.localeCompare(b);
+          });
+          date = sortedDates[0];
+        }
+
+        generatedTasks.push({
+          id: `${slot.classId}-${slot.copyType}-pt${slot.partIndex}-${slot.monthKey}`,
+          classId: slot.classId,
+          copyType: slot.copyType,
+          assignedDate: date,
+          status: "pending",
+          checkedCount: 0,
+          isManual: false,
+          partIndex: slot.partIndex,
+          totalParts: slot.totalParts,
+          partTotal: slot.partTotal,
+          partStart: slot.partStart,
+        });
+
+        assignmentCounts.set(date, (assignmentCounts.get(date) ?? 0) + 1);
+        dateIndex++;
+      }
     }
   }
 
