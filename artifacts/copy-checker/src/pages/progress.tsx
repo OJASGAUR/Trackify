@@ -13,28 +13,34 @@ export default function ProgressDashboard() {
   let classworkTotal = 0;
   let classworkChecked = 0;
 
-  const classStats: Record<string, { hw: number, cw: number, total: number, checked: number, max: number }> = {};
+  const classStats: Record<string, { hw: number, cw: number, total: number, checked: number, max: number, hwTotal: number, cwTotal: number }> = {};
 
   settings.classesConfig.forEach(c => {
-    classStats[c.id] = { hw: 0, cw: 0, total: 0, checked: 0, max: c.studentsCount * 2 };
-    totalCopies += c.studentsCount * 2;
-    homeworkTotal += c.studentsCount;
-    classworkTotal += c.studentsCount;
+    classStats[c.id] = { hw: 0, cw: 0, total: 0, checked: 0, max: 0, hwTotal: 0, cwTotal: 0 };
   });
 
   tasks.forEach(t => {
     const classConfig = settings.classesConfig.find(c => c.id === t.classId);
     if (!classConfig) return;
 
+    const taskTotal = t.partTotal ?? classConfig.studentsCount;
+
     checkedCopies += t.checkedCount;
+    totalCopies += taskTotal;
+
     if (classStats[t.classId]) {
       classStats[t.classId].checked += t.checkedCount;
+      classStats[t.classId].max += taskTotal;
       if (t.copyType === "Homework") {
         homeworkChecked += t.checkedCount;
+        homeworkTotal += taskTotal;
         classStats[t.classId].hw += t.checkedCount;
+        classStats[t.classId].hwTotal += taskTotal;
       } else {
         classworkChecked += t.checkedCount;
+        classworkTotal += taskTotal;
         classStats[t.classId].cw += t.checkedCount;
+        classStats[t.classId].cwTotal += taskTotal;
       }
     }
   });
@@ -125,8 +131,8 @@ export default function ProgressDashboard() {
           {settings.classesConfig.map((c) => {
             const stats = classStats[c.id];
             const p = stats.max > 0 ? Math.round((stats.checked / stats.max) * 100) : 0;
-            const hwP = c.studentsCount > 0 ? Math.round((stats.hw / c.studentsCount) * 100) : 0;
-            const cwP = c.studentsCount > 0 ? Math.round((stats.cw / c.studentsCount) * 100) : 0;
+            const hwP = stats.hwTotal > 0 ? Math.round((stats.hw / stats.hwTotal) * 100) : 0;
+            const cwP = stats.cwTotal > 0 ? Math.round((stats.cw / stats.cwTotal) * 100) : 0;
             
             return (
               <Card key={c.id} className="overflow-hidden border-border/60 hover:border-primary/30 transition-colors hover-elevate">
@@ -142,14 +148,14 @@ export default function ProgressDashboard() {
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-muted-foreground">Homework</span>
-                      <span className="font-medium">{stats.hw}/{c.studentsCount}</span>
+                      <span className="font-medium">{stats.hw}/{stats.hwTotal}</span>
                     </div>
                     <Progress value={hwP} className="h-1.5" />
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-muted-foreground">Classwork</span>
-                      <span className="font-medium">{stats.cw}/{c.studentsCount}</span>
+                      <span className="font-medium">{stats.cw}/{stats.cwTotal}</span>
                     </div>
                     <Progress value={cwP} className="h-1.5" />
                   </div>
