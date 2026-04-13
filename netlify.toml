@@ -1,0 +1,14 @@
+[build]
+  base = "artifacts/copy-checker"
+  command = "corepack enable && corepack pnpm install && corepack pnpm --filter @workspace/copy-checker run build"
+  publish = "artifacts/copy-checker/dist/public"
+
+[context.production.environment]
+  VITE_USE_SUPABASE = "true"
+
+# Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify site settings.
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
